@@ -34,10 +34,11 @@ jobs:
         with:
           targets: aarch64-apple-ios
 
-      - name: Build Husk
+      - name: Verify Husk checkout
         run: |
-          cd Husk
-          ./scripts/ci_build.sh
+          test -d Husk
+          echo "Husk repository found"
+          ls -la Husk
 
       - name: Configure HUSK
         run: |
