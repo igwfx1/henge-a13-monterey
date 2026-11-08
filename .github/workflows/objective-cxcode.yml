@@ -44,6 +44,12 @@ jobs:
         run: |
           echo "HUSK=$GITHUB_WORKSPACE/Husk" >> "$GITHUB_ENV"
 
+      - name: Build Husk pairing library
+        run: |
+          cd Husk
+          rustup target add aarch64-apple-ios
+          bash scripts/build_rppairing_ios.sh
+          
       - name: Fetch dependencies
         run: |
           bash ios/scripts/fetch_deps.sh
