@@ -8,8 +8,8 @@ on:
 
 jobs:
   build:
-    name: Compile Henge
-    runs-on: macos-latest
+    name: Build Henge for iOS
+    runs-on: macos-15
 
     steps:
       - name: Checkout Henge
@@ -26,31 +26,28 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install meson ninja pkg-config xcodegen
-          brew install qemu
+          brew install meson ninja pkg-config python3 xcodegen qemu
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
 
-      - name: Verify Husk checkout
+      - name: Build Husk
+        working-directory: Husk
         run: |
-          test -d Husk
-          echo "Husk repository found"
-          ls -la Husk
+          bash scripts/ci_build.sh
 
       - name: Configure HUSK
         run: |
           echo "HUSK=$GITHUB_WORKSPACE/Husk" >> "$GITHUB_ENV"
 
-      - name: Build Husk pairing library
+      - name: Verify Husk libraries
         run: |
-          cd Husk
-          rustup target add aarch64-apple-ios
-          bash scripts/build_rppairing_ios.sh
-          
-      - name: Fetch dependencies
+          test -f Husk/build/ios-arm64/lib/libhusk_rppairing.a
+          test -f Husk/build/ios-arm64/sysroot/lib/libslirp.a
+
+      - name: Fetch Henge dependencies
         run: |
           bash ios/scripts/fetch_deps.sh
 
@@ -72,3 +69,4 @@ jobs:
           name: Henge-IPA
           path: ~/Desktop/Henge.ipa
           if-no-files-found: error
+          retention-days: 7
