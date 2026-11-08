@@ -1,62 +1,119 @@
-name: Build Henge IPA
+name: Build Henge A13 Monterey (No StikJIT)
 
 on:
-workflow_dispatch:
-push:
-branches:
-- main
+  workflow_dispatch:
+  push:
+    branches:
+      - "**"
+
+permissions:
+  contents: read
 
 jobs:
-build:
-name: Build iOS IPA
-runs-on: macos-latest
+  build-ipa:
+    runs-on: macos-latest
+    timeout-minutes: 180
 
-steps:
-  - name: Checkout Henge
-    uses: actions/checkout@v4
-    with:
-      submodules: recursive
-  - name: Checkout Husk
-    uses: actions/checkout@v4
-    with:
-      repository: Leviidev/Husk
-      path: Husk
-      submodules: recursive
-  - name: Install dependencies
-    run: |
-      brew update
-      brew install meson ninja pkg-config xcodegen qemu
-  - name: Install Rust
-    uses: dtolnay/rust-toolchain@stable
-    with:
-      targets: aarch64-apple-ios
-  - name: Build Husk
-    run: |
-      cd Husk
-      chmod +x scripts/ci_build.sh
-      ./scripts/ci_build.sh
-  - name: Configure Henge
-    run: |
-      echo "HUSK=$GITHUB_WORKSPACE/Husk" >> "$GITHUB_ENV"
-  - name: Fetch Henge dependencies
-    run: |
-      chmod +x ios/scripts/fetch_deps.sh
-      ios/scripts/fetch_deps.sh
-  - name: Build restore components
-    run: |
-      chmod +x tools/build_ios_restore.sh
-      tools/build_ios_restore.sh
-  - name: Build iOS libraries
-    run: |
-      make ios-lib
-  - name: Package IPA
-    run: |
-      chmod +x ios/scripts/package_ipa.sh
-      ios/scripts/package_ipa.sh
-  - name: Upload IPA
-    uses: actions/upload-artifact@v4
-    with:
-      name: Henge-IPA
-      path: ~/Desktop/Henge.ipa
-      if-no-files-found: error
-      retention-days: 7
+    env:
+      BITRISE_SOURCE_DIR: ${{ github.workspace }}
+      BITRISE_DEPLOY_DIR: ${{ runner.temp }}/henge-artifacts
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Prepare artifact directory
+        run: mkdir -p "$BITRISE_DEPLOY_DIR"
+
+      - name: Verify Xcode
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          swift --version
+
+      - name: Remove StikJIT build dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          root = Path(".")
+
+          build_script = root / "ci/build-bitrise.sh"
+          text = build_script.read_text()
+
+          text = text.replace(
+              'STIKJIT_ROOT="$(dirname "$HENGE_ROOT")/StikJIT"\n',
+              ''
+          )
+
+          stikjit_commands = '''bash ci/build-stikjit.sh "$STIKJIT_ROOT"
+          rm -rf "$HENGE_ROOT/ios/deps/StikJIT.xcframework"
+          ditto "$STIKJIT_ROOT/StikJIT.xcframework" "$HENGE_ROOT/ios/deps/StikJIT.xcframework"
+          '''
+
+          if stikjit_commands not in text:
+              raise SystemExit(
+                  "ERROR: StikJIT build commands were not found. "
+                  "The source differs from the expected archive."
+              )
+
+          text = text.replace(stikjit_commands, "")
+          build_script.write_text(text)
+
+          package_script = root / "ios/scripts/package_ipa.sh"
+          text = package_script.read_text()
+
+          old_fetch = '[ -d "$IOS/deps/StikJIT.xcframework" ] || "$IOS/scripts/fetch_deps.sh"'
+
+          if old_fetch not in text:
+              raise SystemExit(
+                  "ERROR: Expected StikJIT dependency check was not found."
+              )
+
+          text = text.replace(
+              old_fetch,
+              '"$IOS/scripts/fetch_deps.sh"'
+          )
+
+          old_bundle_check = '''for f in "$APP/Henge" "$APP/henge-jit.js" "$APP/PlugIns/HengeJITHelper.appex/HengeJITHelper" \\
+                   "$APP/Frameworks/StikJIT.framework/StikJIT" "$APP/Frameworks/StikJIT.framework/Info.plist"; do'''
+
+          new_bundle_check = '''for f in "$APP/Henge" "$APP/henge-jit.js"; do'''
+
+          if old_bundle_check not in text:
+              raise SystemExit(
+                  "ERROR: Expected StikJIT bundle checks were not found."
+              )
+
+          text = text.replace(old_bundle_check, new_bundle_check)
+          package_script.write_text(text)
+
+          print("StikJIT build and packaging requirements removed.")
+          PY
+
+      - name: Install build dependencies
+        run: |
+          brew install meson ninja pkg-config xcodegen cmake
+
+      - name: Build unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ci/build-bitrise.sh
+
+      - name: Verify IPA
+        run: |
+          test -s "$BITRISE_DEPLOY_DIR/Henge-A13-Monterey-unsigned.zip"
+          unzip -l "$BITRISE_DEPLOY_DIR/Henge-A13-Monterey-unsigned.zip"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Henge-A13-Monterey-No-StikJIT
+          path: ${{ runner.temp }}/henge-artifacts/Henge-A13-Monterey-unsigned.zip
+          if-no-files-found: error
+          retention-days: 14
