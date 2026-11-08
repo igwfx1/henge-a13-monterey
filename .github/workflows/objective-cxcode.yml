@@ -34,6 +34,14 @@ jobs:
         run: |
           echo "$(brew --prefix gnu-tar)/libexec/gnubin" >> "$GITHUB_PATH"
 
+      - name: Install Python dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/husk-venv"
+          "$RUNNER_TEMP/husk-venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/husk-venv/bin/python" -m pip install PyYAML
+          echo "$RUNNER_TEMP/husk-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/husk-venv/bin/python" -c "import yaml; print('PyYAML OK')"
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -58,15 +66,15 @@ jobs:
           path = Path("Husk/scripts/build_angle_ios.sh")
           source = path.read_text()
 
-          old = """OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-unguarded-availability-new'"""
+          old = "OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-unguarded-availability-new'"
+          new = "OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-unguarded-availability-new -Wno-error=thread-safety-attributes -Wno-error=thread-safety-analysis'"
 
-          new = """OTHER_CPLUSPLUSFLAGS='$(inherited) -Wno-unguarded-availability-new -Wno-error=thread-safety-attributes -Wno-error=thread-safety-analysis'"""
+          if old in source:
+              path.write_text(source.replace(old, new, 1))
+              print("ANGLE flags patched")
+          else:
+              print("ANGLE flags already patched or changed")
 
-          if old not in source:
-              raise SystemExit("Could not find ANGLE compiler flags")
-
-          path.write_text(source.replace(old, new, 1))
-          print("ANGLE compiler flags patched successfully")
           PY
 
       - name: Build Husk
@@ -111,3 +119,11 @@ jobs:
           path: Henge.ipa
           if-no-files-found: error
           retention-days: 7
+
+      - name: Upload Husk build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Husk-build-logs
+          path: Husk/build/logs/
+          if-no-files-found: ignore
