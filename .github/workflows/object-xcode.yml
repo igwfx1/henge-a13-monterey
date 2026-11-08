@@ -1,0 +1,62 @@
+name: Build Henge IPA
+
+on:
+workflow_dispatch:
+push:
+branches:
+- main
+
+jobs:
+build:
+name: Build iOS IPA
+runs-on: macos-latest
+
+steps:
+  - name: Checkout Henge
+    uses: actions/checkout@v4
+    with:
+      submodules: recursive
+  - name: Checkout Husk
+    uses: actions/checkout@v4
+    with:
+      repository: Leviidev/Husk
+      path: Husk
+      submodules: recursive
+  - name: Install dependencies
+    run: |
+      brew update
+      brew install meson ninja pkg-config xcodegen qemu
+  - name: Install Rust
+    uses: dtolnay/rust-toolchain@stable
+    with:
+      targets: aarch64-apple-ios
+  - name: Build Husk
+    run: |
+      cd Husk
+      chmod +x scripts/ci_build.sh
+      ./scripts/ci_build.sh
+  - name: Configure Henge
+    run: |
+      echo "HUSK=$GITHUB_WORKSPACE/Husk" >> "$GITHUB_ENV"
+  - name: Fetch Henge dependencies
+    run: |
+      chmod +x ios/scripts/fetch_deps.sh
+      ios/scripts/fetch_deps.sh
+  - name: Build restore components
+    run: |
+      chmod +x tools/build_ios_restore.sh
+      tools/build_ios_restore.sh
+  - name: Build iOS libraries
+    run: |
+      make ios-lib
+  - name: Package IPA
+    run: |
+      chmod +x ios/scripts/package_ipa.sh
+      ios/scripts/package_ipa.sh
+  - name: Upload IPA
+    uses: actions/upload-artifact@v4
+    with:
+      name: Henge-IPA
+      path: ~/Desktop/Henge.ipa
+      if-no-files-found: error
+      retention-days: 7
